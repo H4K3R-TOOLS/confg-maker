@@ -1,0 +1,199 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Mini AI Proj Builder — Live Checker</title>
+  <style>
+    :root{--bg:#0f172a;--fg:#e5e7eb;--card:#0b1220;--muted:#94a3b8;--brand:#8b5cf6;--ok:#10b981;--warn:#f59e0b;--bad:#ef4444}
+    *{box-sizing:border-box} body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Ubuntu,Arial;background:linear-gradient(135deg,#0f172a,#1f2937);color:var(--fg);padding:18px}
+    .wrap{max-width:1100px;margin:0 auto}
+    h1{font-size:24px;margin:6px 0 14px;background:linear-gradient(135deg,#a78bfa,#60a5fa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .card{background:rgba(255,255,255,.04);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px;margin-bottom:12px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    label{display:block;font-weight:600;margin:6px 0;color:#c7d2fe}
+    input,textarea,select{width:100%;padding:10px;border-radius:10px;border:1px solid #334155;background:var(--card);color:var(--fg)}
+    textarea{min-height:80px}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    button{border:0;padding:10px 14px;border-radius:10px;font-weight:600;cursor:pointer}
+    .btn{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff}
+    .btn.ok{background:linear-gradient(135deg,#10b981,#34d399)}
+    .btn.warn{background:linear-gradient(135deg,#f59e0b,#f97316)}
+    .btn.ghost{background:var(--card);border:1px solid #334155}
+    .pill{display:inline-block;border-radius:999px;padding:4px 10px;border:1px solid #334155;background:rgba(255,255,255,.04);font-size:12px;margin-right:6px;margin-top:6px}
+    pre{background:var(--card);border:1px solid #334155;border-radius:10px;padding:12px;white-space:pre-wrap;overflow:auto}
+    .good{color:#86efac}.bad{color:#fca5a5}.mid{color:#fde68a}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🤖 Mini AI Proj Builder — Live Checker</h1>
+    <div class="card">
+      <div class="row">
+        <div>
+          <label>Project Name</label>
+          <input id="projectName" placeholder="MyProject"/>
+        </div>
+        <div>
+          <label>Website Link (login-protected page e.g. /settings)</label>
+          <input id="websiteUrl" placeholder="https://example.com/settings"/>
+        </div>
+      </div>
+
+      <details style="margin-top:8px;">
+        <summary>Optional: Cookies & Headers</summary>
+        <div class="row" style="margin-top:8px;">
+          <div>
+            <label>Cookies (raw: key=value; ...)</label>
+            <input id="cookieStr" placeholder="sid=abc; token=xyz"/>
+          </div>
+          <div>
+            <label>Cookie JSON (EditThisCookie)</label>
+            <textarea id="cookieJson" placeholder='[{"domain":".example.com","name":"sid","value":"abc","path":"/","secure":true}]'></textarea>
+          </div>
+        </div>
+        <div style="margin-top:8px;">
+          <label>Custom Headers JSON (optional)</label>
+          <textarea id="customHeaders" placeholder='{"Accept":"application/json"}'></textarea>
+        </div>
+      </details>
+
+      <div class="toolbar">
+        <button class="btn" id="btnAuto">🔮 AI Autofill (name + link only)</button>
+        <button class="btn ok" id="btnOneClick">⚡ One‑Click Live Check</button>
+        <button class="btn ghost" id="btnDownload">💾 Download .proj</button>
+      </div>
+
+      <div id="kpi" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="card">
+      <h3>📄 Proposed Config</h3>
+      <pre id="proj">—</pre>
+      <div class="toolbar">
+        <button class="btn ghost" id="btnCopy">📋 Copy</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>📊 Live Result</h3>
+      <pre id="log">Idle.</pre>
+    </div>
+  </div>
+
+<script>
+const backend = localStorage.getItem('live_checker_backend') || 'http://localhost:8787';
+function setKPI(items){
+  document.getElementById('kpi').innerHTML = items.map(s=>`<span class="pill">${s}</span>`).join('');
+}
+function projFromSuggestion(s){
+  const headers = s.headers||{};
+  return [
+    '[Project Settings]',
+    `ProjectName=${document.getElementById('projectName').value || s.projectName || 'MyProject'}`,
+    '',
+    '[Request Settings]',
+    `Domain=${s.domain||''}`,
+    `ResponseValidator=${s.validator||''}`,
+    `URL=${s.url||''}`,
+    `Method=${s.method||'GET'}`,
+    `Headers=${JSON.stringify(headers)}`,
+    '',
+    '[Parser Settings]',
+    'UseParser=False',
+    'MethodParser=All',
+    ''
+  ].join('\n');
+}
+function showProj(text){ document.getElementById('proj').textContent = text; }
+function log(msg,obj){
+  const pre = document.getElementById('log');
+  const ts = new Date().toLocaleTimeString();
+  pre.textContent += `\n[${ts}] ${msg}`;
+  if(obj) pre.textContent += `\n${JSON.stringify(obj,null,2)}`;
+  pre.scrollTop = pre.scrollHeight;
+}
+async function postJSON(path, body){
+  const res = await fetch(backend+path, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  if(!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+async function doAuto(){
+  const url = document.getElementById('websiteUrl').value.trim();
+  const name = document.getElementById('projectName').value.trim() || 'MyProject';
+  if(!url){ alert('Please enter link'); return; }
+  setKPI(['⏳ inferring...']);
+  try{
+    const data = await postJSON('/auto', {
+      url,
+      cookieStr: document.getElementById('cookieStr').value,
+      cookieJson: document.getElementById('cookieJson').value,
+      headers: tryParseJSON(document.getElementById('customHeaders').value) || {}
+    });
+    const best = data.best || data.suggestions?.[0] || {};
+    best.projectName = name;
+    showProj(projFromSuggestion(best));
+    setKPI([
+      `Framework: ${data.framework||'—'}`,
+      `Candidates: ${data.suggestions?.length||0}`,
+      `Chosen: ${best.method||'GET'} ${best.url||''}`,
+      `Validator: ${best.validator||'—'}`
+    ]);
+    log('AI Autofill suggestions', data);
+  }catch(e){
+    setKPI([`❌ autofill failed`]);
+    log('Auto error', {error:String(e)});
+  }
+}
+async function oneClick(){
+  const url = document.getElementById('websiteUrl').value.trim();
+  const name = document.getElementById('projectName').value.trim() || 'MyProject';
+  if(!url){ alert('Please enter link'); return; }
+  setKPI(['⏳ checking live...']);
+  try{
+    const data = await postJSON('/auto-check', {
+      url,
+      cookieStr: document.getElementById('cookieStr').value,
+      cookieJson: document.getElementById('cookieJson').value,
+      headers: tryParseJSON(document.getElementById('customHeaders').value) || {}
+    });
+    const cfg = {
+      projectName: name,
+      domain: data.domain,
+      validator: data.best?.validator || data.validator || '',
+      url: data.best?.url || data.final_url || url,
+      method: data.best?.method || 'GET',
+      headers: data.best?.headers || {}
+    };
+    showProj(projFromSuggestion(cfg));
+    setKPI([
+      `HTTP: ${data.status}`,
+      `Valid: ${data.ok? '✅ YES':'❌ NO'}`,
+      `Redirects: ${data.redirects||0}`
+    ]);
+    log('One‑Click result', data);
+  }catch(e){
+    setKPI([`❌ live check failed`]);
+    log('Live check error', {error:String(e)});
+  }
+}
+function tryParseJSON(s){ try{ return s?JSON.parse(s):null }catch(e){ return null } }
+document.getElementById('btnAuto').addEventListener('click', doAuto);
+document.getElementById('btnOneClick').addEventListener('click', oneClick);
+document.getElementById('btnDownload').addEventListener('click', ()=>{
+  const text = document.getElementById('proj').textContent || '';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text],{type:'text/plain'}));
+  a.download = 'config.proj';
+  a.click(); URL.revokeObjectURL(a.href);
+});
+document.getElementById('btnCopy').addEventListener('click', ()=>{
+  navigator.clipboard.writeText(document.getElementById('proj').textContent||'')
+});
+</script>
+</body>
+</html>
