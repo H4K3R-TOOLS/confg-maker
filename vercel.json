@@ -1,0 +1,9 @@
+{
+  "functions": {
+    "api/**/*.{js,ts}": {
+      "runtime": "nodejs18.x",
+      "memory": 512,
+      "maxDuration": 15
+    }
+  }
+}
