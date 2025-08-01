@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scanHost } from "../../lib/scanner";
+
 export const runtime = "nodejs"; // ensure Node runtime on Vercel
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
