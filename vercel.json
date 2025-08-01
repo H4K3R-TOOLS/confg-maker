@@ -1,7 +1,5 @@
 {
   "functions": {
-    "app/api/scan/route.js": {
-      "maxDuration": 60
-    }
+    "app/api/scan/route.ts": { "maxDuration": 60 }
   }
 }
