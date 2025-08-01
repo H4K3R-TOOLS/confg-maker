@@ -39,6 +39,35 @@ export default function Page() {
   const [results, setResults] = useState<Result[]>([]);
   const [error, setError] = useState<string>("");
 
+  const [presetHeaders, setPresetHeaders] = useState<Record<string,string>>({});
+  const [profiles, setProfiles] = useState<string[]>([]);
+  const [selectedProfile, setSelectedProfile] = useState<string>("");
+  const [usePresetHeaders, setUsePresetHeaders] = useState<boolean>(true);
+
+  useEffect(() => {
+    // Load server-side preset headers and profile names
+    fetch("/api/preset")
+      .then(r => r.json())
+      .then(d => {
+        if (d && d.headers) setPresetHeaders(d.headers);
+        if (Array.isArray(d?.profiles)) setProfiles(d.profiles);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const base = url.searchParams.get("base");
+    const auto = url.searchParams.get("auto");
+    const prof = url.searchParams.get("profile");
+    if (base) setBaseUrl(base);
+    if (prof) setSelectedProfile(prof);
+    if (base && auto === "1") {
+      setTimeout(() => onScan(), 500);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const wordlistPreview = useMemo(() => {
     const extra = customEndpoints
       .split(/\r?\n/)
@@ -69,6 +98,7 @@ export default function Page() {
     setResults([]);
     try {
       const hdrs = JSON.parse(headersJson || "{}");
+      const merged = usePresetHeaders ? { ...presetHeaders, ...hdrs } : hdrs;
       const extra = customEndpoints.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
       const res = await fetch("/api/scan", {
         method: "POST",
@@ -77,7 +107,7 @@ export default function Page() {
           baseUrl,
           include: { streaming: includeStreaming, vpn: includeVPN, esim: includeESIM },
           extraEndpoints: extra,
-          headers: hdrs,
+          headers: merged,
           timeoutMs,
           concurrency,
           tryGraphQL,
@@ -98,17 +128,13 @@ export default function Page() {
     }
   }
 
-  function download(type: "csv" | "json") {
-    const blob = type === "csv"
-      ? new Blob([toCSV(results)], { type: "text/csv" })
-      : new Blob([JSON.stringify(results, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = type === "csv" ? "finder-results.csv" : "finder-results.json";
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+  const shareHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (baseUrl) params.set("base", baseUrl);
+    params.set("auto", "1");
+    if (selectedProfile) params.set("profile", selectedProfile);
+    return `/?${params.toString()}`;
+  }, [baseUrl, selectedProfile]);
 
   return (
     <main style={{ maxWidth: 1200, margin: "0 auto", padding: 20 }}>
@@ -129,14 +155,25 @@ export default function Page() {
           </div>
           <label><input type="checkbox" checked={includeStreaming} onChange={e => setIncludeStreaming(e.target.checked)} /> Include Streaming paths</label>
           <label><input type="checkbox" checked={includeVPN} onChange={e => setIncludeVPN(e.target.checked)} /> Include VPN paths</label>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginTop: 12 }}>
           <label><input type="checkbox" checked={includeESIM} onChange={e => setIncludeESIM(e.target.checked)} /> Include eSIM/Telecom</label>
+          <div />
+          <div />
         </div>
 
         <label style={{ marginTop: 12, display: "block" }}>Custom Endpoints (one per line)</label>
         <textarea value={customEndpoints} onChange={e => setCustomEndpoints(e.target.value)} rows={6} placeholder="/my-endpoint\n/api/internal\n/hidden"
           style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid #ddd", fontFamily: "monospace" }} />
 
-        <label style={{ marginTop: 12, display: "block" }}>Custom Headers (JSON)</label>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 12 }}>
+          <label style={{ display: "block" }}>Custom Headers (JSON)</label>
+          <div style={{ fontSize: 12, color: "#555" }}>
+            Preset from server: {Object.keys(presetHeaders).length ? <b>loaded</b> : <i>none</i>} &nbsp;
+            <label style={{ marginLeft: 8 }}><input type="checkbox" checked={usePresetHeaders} onChange={e => setUsePresetHeaders(e.target.checked)} /> Use preset</label>
+          </div>
+        </div>
         <textarea value={headersJson} onChange={e => setHeadersJson(e.target.value)} rows={4} placeholder='{"User-Agent":"Mozilla/5.0","Cookie":"auth=..."}'
           style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid #ddd", fontFamily: "monospace" }} />
 
@@ -157,9 +194,25 @@ export default function Page() {
           <button onClick={onScan} disabled={loading} style={{ background: "#28a745", color: "white", padding: "10px 16px", borderRadius: 8, border: "none", cursor: "pointer" }}>
             {loading ? "Scanning..." : `Scan (${wordlistPreview} endpoints)`}
           </button>
-          <a href={`/?base=${encodeURIComponent(baseUrl)}&auto=1${selectedProfile?`&profile=${encodeURIComponent(selectedProfile)}`:}`} style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #bbb", background: "#fff", textDecoration: "none" }}>Shareable Link</a>
-          <button onClick={() => download("csv")} disabled={!results.length} style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #bbb", background: "#fff" }}>Download CSV</button>
-          <button onClick={() => download("json")} disabled={!results.length} style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #bbb", background: "#fff" }}>Download JSON</button>
+          <a href={shareHref} style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #bbb", background: "#fff", textDecoration: "none" }}>Shareable Link</a>
+          <button onClick={() => {
+            const blob = new Blob([toCSV(results)], { type: "text/csv" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "finder-results.csv";
+            a.click();
+            URL.revokeObjectURL(url);
+          }} disabled={!results.length} style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #bbb", background: "#fff" }}>Download CSV</button>
+          <button onClick={() => {
+            const blob = new Blob([JSON.stringify(results, null, 2)], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "finder-results.json";
+            a.click();
+            URL.revokeObjectURL(url);
+          }} disabled={!results.length} style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #bbb", background: "#fff" }}>Download JSON</button>
         </div>
 
         {error && <div style={{ color: "red", marginTop: 12 }}>{error}</div>}
@@ -171,11 +224,11 @@ export default function Page() {
               <thead>
                 <tr style={{ background: "#fafafa" }}>
                   <th style={{ padding: 8, borderBottom: "1px solid #eee", textAlign: "left" }}>Endpoint</th>
-                  <th style={{ padding: 8, borderBottom: "1px solid #eee", textAlign: "left" }}>Status</th>
-                  <th style={{ padding: 8, borderBottom: "1px solid #eee", textAlign: "left" }}>Content-Type</th>
-                  <th style={{ padding: 8, borderBottom: "1px solid #eee", textAlign: "left" }}>Found</th>
-                  <th style={{ padding: 8, borderBottom: "1px solid #eee", textAlign: "left" }}>Keys sample</th>
-                  <th style={{ padding: 8, borderBottom: "1px solid #eee", textAlign: "left" }}>Note</th>
+                  <th style={{ padding: 8, borderBottom: "1px solid " + "#eee", textAlign: "left" }}>Status</th>
+                  <th style={{ padding: 8, borderBottom: "1px solid " + "#eee", textAlign: "left" }}>Content-Type</th>
+                  <th style={{ padding: 8, borderBottom: "1px solid " + "#eee", textAlign: "left" }}>Found</th>
+                  <th style={{ padding: 8, borderBottom: "1px solid " + "#eee", textAlign: "left" }}>Keys sample</th>
+                  <th style={{ padding: 8, borderBottom: "1px solid " + "#eee", textAlign: "left" }}>Note</th>
                 </tr>
               </thead>
               <tbody>
