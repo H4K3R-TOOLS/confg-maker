@@ -7,7 +7,17 @@ export const maxDuration = 60;
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { baseUrl, include, extraEndpoints, headers, timeoutMs, concurrency, tryGraphQL, extractEmbedded } = body || {};
+    const { baseUrl, include, extraEndpoints, headers, timeoutMs, concurrency, tryGraphQL, extractEmbedded, profile } = body || {};
+    const presetRaw = process.env.PRESET_HEADERS_JSON || "{}";
+    let preset: Record<string,string> = {};
+    try { preset = JSON.parse(presetRaw); } catch { preset = {}; }
+    const rawProfiles = process.env.PRESET_PROFILES_JSON || "{}";
+    let profiles: Record<string, Record<string,string>> = {};
+    try { profiles = JSON.parse(rawProfiles); } catch { profiles = {}; }
+    const chosen = profile && typeof profile === 'string' ? profiles[profile] || profiles[profile.toLowerCase()] : undefined;
+    const presetRaw = process.env.PRESET_HEADERS_JSON || "{}";
+    let preset: Record<string,string> = {};
+    try { preset = JSON.parse(presetRaw); } catch { preset = {}; }
     if (!baseUrl || typeof baseUrl !== "string") {
       return NextResponse.json({ error: "baseUrl is required" }, { status: 400 });
     }
@@ -20,7 +30,7 @@ export async function POST(req: NextRequest) {
         esim: !!(include?.esim)
       },
       extraEndpoints: Array.isArray(extraEndpoints) ? extraEndpoints : [],
-      headers: typeof headers === "object" && headers ? headers : {},
+      headers: { ...(typeof preset === "object" && preset ? preset : {}), ...(chosen || {}), ...(typeof headers === "object" && headers ? headers : {}) },
       timeoutMs: Number(timeoutMs) || 8000,
       concurrency: Number(concurrency) || 12,
       tryGraphQL: !!tryGraphQL,

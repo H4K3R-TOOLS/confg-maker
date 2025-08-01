@@ -81,7 +81,8 @@ export default function Page() {
           timeoutMs,
           concurrency,
           tryGraphQL,
-          extractEmbedded
+          extractEmbedded,
+          profile: selectedProfile
         })
       });
       if (!res.ok) {
@@ -119,6 +120,13 @@ export default function Page() {
         <input value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://www.netflix.com" style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid #ddd" }} />
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginTop: 12 }}>
+          <div>
+            <label>Header Profile</label>
+            <select value={selectedProfile} onChange={e => setSelectedProfile(e.target.value)} style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid #ddd" }}>
+              <option value="">(none)</option>
+              {profiles.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
           <label><input type="checkbox" checked={includeStreaming} onChange={e => setIncludeStreaming(e.target.checked)} /> Include Streaming paths</label>
           <label><input type="checkbox" checked={includeVPN} onChange={e => setIncludeVPN(e.target.checked)} /> Include VPN paths</label>
           <label><input type="checkbox" checked={includeESIM} onChange={e => setIncludeESIM(e.target.checked)} /> Include eSIM/Telecom</label>
@@ -149,6 +157,7 @@ export default function Page() {
           <button onClick={onScan} disabled={loading} style={{ background: "#28a745", color: "white", padding: "10px 16px", borderRadius: 8, border: "none", cursor: "pointer" }}>
             {loading ? "Scanning..." : `Scan (${wordlistPreview} endpoints)`}
           </button>
+          <a href={`/?base=${encodeURIComponent(baseUrl)}&auto=1${selectedProfile?`&profile=${encodeURIComponent(selectedProfile)}`:}`} style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #bbb", background: "#fff", textDecoration: "none" }}>Shareable Link</a>
           <button onClick={() => download("csv")} disabled={!results.length} style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #bbb", background: "#fff" }}>Download CSV</button>
           <button onClick={() => download("json")} disabled={!results.length} style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #bbb", background: "#fff" }}>Download JSON</button>
         </div>
