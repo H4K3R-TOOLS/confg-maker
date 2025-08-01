@@ -1,0 +1,338 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Proj Config Checker — Cookie Validator</title>
+  <style>
+    :root{--bg:#0f172a;--card:#111827;--muted:#cbd5e1;--brand:#6366f1;--ok:#10b981;--warn:#f59e0b;--err:#ef4444;}
+    *{box-sizing:border-box} body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;
+      background:linear-gradient(135deg,#0f172a,#1f2937);color:#e5e7eb;padding:18px}
+    .wrap{max-width:1200px;margin:0 auto}
+    .title{display:flex;align-items:center;gap:10px;margin:10px 0 18px}
+    .title h1{font-size:26px;margin:0;background:linear-gradient(135deg,#a78bfa,#60a5fa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .card{background:rgba(255,255,255,0.04);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    label{display:block;font-weight:600;margin-bottom:6px;color:#c7d2fe}
+    input[type=text],textarea,select{width:100%;padding:10px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#e5e7eb}
+    textarea{min-height:90px}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    button{border:0;padding:10px 14px;border-radius:10px;font-weight:600;cursor:pointer}
+    .btn{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff}
+    .btn.secondary{background:#0b1220;border:1px solid #334155}
+    .btn.ok{background:linear-gradient(135deg,#10b981,#34d399)}
+    .btn.warn{background:linear-gradient(135deg,#f59e0b,#f97316)}
+    .btn.err{background:linear-gradient(135deg,#ef4444,#f43f5e)}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap}
+    .kpi{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0}
+    .pill{border-radius:999px;padding:6px 10px;font-size:12px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.05)}
+    pre{background:#0b1220;border:1px solid #334155;color:#d1d5db;border-radius:10px;padding:12px;overflow:auto;white-space:pre-wrap}
+    .log{max-height:340px;overflow:auto}
+    .good{color:#86efac}.bad{color:#fca5a5}.mid{color:#fde68a}
+    .hl{color:#93c5fd}
+    .hidden{display:none}
+    .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid #334155}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="title">
+      <h1>🚀 Proj Config Checker — Cookie Validator</h1>
+      <span class="badge">v1.0</span>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3>🔧 Load / Build Config</h3>
+        <div class="row">
+          <div>
+            <label>Website URL</label>
+            <input id="websiteUrl" type="text" placeholder="https://example.com/settings">
+          </div>
+          <div>
+            <label>Project Name</label>
+            <input id="projectName" type="text" placeholder="MyProject @Checker">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>HTTP Method</label>
+            <select id="httpMethod">
+              <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option>
+            </select>
+          </div>
+          <div>
+            <label>Response Validator (text or json.path)</label>
+            <input id="validator" type="text" placeholder="text: "loggedIn":true  OR  json: data.user.email">
+          </div>
+        </div>
+        <div>
+          <label>Custom Headers (JSON)</label>
+          <textarea id="customHeaders" placeholder='{"X-Requested-With":"XMLHttpRequest"}'></textarea>
+        </div>
+        <div class="row">
+          <div>
+            <label>Cookies (raw "key=value; ...")</label>
+            <input id="cookieStr" type="text" placeholder='sid=abc; _ga=...; token=...'>
+          </div>
+          <div>
+            <label>Cookie JSON (optional, EditThisCookie format)</label>
+            <textarea id="cookieJson" placeholder='[{"domain":".example.com","name":"sid","value":"abc","path":"/","secure":true,"expires":1754000000}]'></textarea>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <input id="projFile" type="file" accept=".proj" />
+          <button class="btn secondary" id="btnLoadProj">Load .proj</button>
+          <button class="btn" id="btnGenProj">Generate .proj</button>
+          <button class="btn warn" id="btnOffline">Offline Validate</button>
+          <button class="btn ok" id="btnOnline">Validate via Backend</button>
+        </div>
+
+        <div class="kpi">
+          <span class="pill">⚙️ CORS-safe offline checks work without a server</span>
+          <span class="pill">🌐 For real requests, set backend URL below</span>
+        </div>
+
+        <div>
+          <label>Backend URL (for online validation)</label>
+          <input id="backendUrl" type="text" placeholder="http://localhost:8787/check">
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>📊 Results</h3>
+        <div id="summary" class="kpi"></div>
+        <div class="log">
+          <pre id="log">Ready. Load .proj or fill fields, then click Validate.</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentConfig = null;
+
+    function buildTargetURL(input) {
+      try{
+        const u = new URL(input);
+        return u.toString();
+      }catch(e){
+        return input;
+      }
+    }
+
+    function parseProj(text){
+      // Simple INI-like parser
+      const lines = text.split(/\r?\n/);
+      const obj = { Project:{}, Request:{}, Parser:{} };
+      let section = null;
+      for(const raw of lines){
+        const line = raw.trim();
+        if(!line || line.startsWith(';') || line.startsWith('#')) continue;
+        if(line.startsWith('[') && line.endsWith(']')){
+          const name = line.slice(1,-1).toLowerCase();
+          if(name.includes('project')) section = 'Project';
+          else if(name.includes('request')) section = 'Request';
+          else if(name.includes('parser')) section = 'Parser';
+          else section = 'Other';
+          continue;
+        }
+        const idx = line.indexOf('=');
+        if(idx>0 && section){
+          const key = line.slice(0,idx).trim();
+          const val = line.slice(idx+1).trim();
+          obj[section][key] = val;
+        }
+      }
+      return obj;
+    }
+
+    function toProj(cfg){
+      return [
+        '[Project Settings]',
+        `ProjectName=${cfg.projectName}`,
+        '',
+        '[Request Settings]',
+        `Domain=${cfg.domain}`,
+        `ResponseValidator=${cfg.validator}`,
+        `URL=${cfg.url}`,
+        `Method=${cfg.method}`,
+        `Headers=${JSON.stringify(cfg.headers||{})}`,
+        '',
+        '[Parser Settings]',
+        `UseParser=False`,
+        `MethodParser=All`,
+        ''
+      ].join('\n');
+    }
+
+    function log(msg,obj){
+      const pre = document.getElementById('log');
+      const stamp = new Date().toLocaleTimeString();
+      pre.textContent += `\n[${stamp}] ${msg}`;
+      if(obj) pre.textContent += `\n${JSON.stringify(obj,null,2)}`;
+      pre.scrollTop = pre.scrollHeight;
+    }
+
+    function setSummary(items){
+      const box = document.getElementById('summary');
+      box.innerHTML = items.map(i=>`<span class="pill">${i}</span>`).join('');
+    }
+
+    function parseCookieString(str){
+      const parts = (str||'').split(';').map(s=>s.trim()).filter(Boolean);
+      const map = {};
+      for(const p of parts){
+        const eq = p.indexOf('=');
+        if(eq>0){
+          const k = p.slice(0,eq).trim();
+          const v = p.slice(eq+1).trim();
+          if(k.toLowerCase()!=='path' && k.toLowerCase()!=='domain' && k.toLowerCase()!=='expires' && k.toLowerCase()!=='samesite' && k.toLowerCase()!=='secure' && k.toLowerCase()!=='httponly'){
+            map[k]=v;
+          }
+        }
+      }
+      return map;
+    }
+
+    function mergeCookiesFromJson(jsonStr){
+      try{
+        const arr = JSON.parse(jsonStr||'[]');
+        const out = {};
+        for(const c of arr){
+          if(c.name && typeof c.value !== 'undefined') out[c.name]=String(c.value);
+        }
+        return out;
+      }catch(e){ return {}; }
+    }
+
+    function offlineValidate(){
+      const url = document.getElementById('websiteUrl').value.trim();
+      const validator = document.getElementById('validator').value.trim();
+      const domain = safeHostname(url);
+      const cookieMap = {
+        ...mergeCookiesFromJson(document.getElementById('cookieJson').value),
+        ...parseCookieString(document.getElementById('cookieStr').value)
+      };
+
+      const issues = [];
+      const tips = [];
+
+      if(!url) issues.push('URL missing');
+      if(Object.keys(cookieMap).length===0) issues.push('No cookies provided');
+      if(!validator) tips.push('Add a validator: e.g., text: "email" or json: data.user.id');
+
+      const likelyLoginCookie = Object.keys(cookieMap).some(k=>/^(sid|session|sessid|token|auth|jwt|access|bearer)$/i.test(k));
+      if(!likelyLoginCookie) tips.push('No typical session cookie found (sid/session/token/auth/jwt)');
+
+      // Heuristic: secure cookie on http
+      try{
+        const u = new URL(url);
+        if(u.protocol==='http:') tips.push('Use HTTPS; many cookies have "Secure" and won\'t be sent over HTTP');
+        if(!domainMatches(cookieMap, u.hostname)) tips.push('Some cookies may be scoped for a different domain/subdomain');
+      }catch(e){}
+
+      const summary = [];
+      summary.push(`Domain: <span class="hl">${domain||'?'}</span>`);
+      summary.push(`Cookies: <span class="${Object.keys(cookieMap).length?'good':'bad'}">${Object.keys(cookieMap).length}</span>`);
+      summary.push(`Validator: <span class="${validator?'good':'mid'}">${validator||'not set'}</span>`);
+
+      setSummary(summary);
+      log('Offline checks complete.', {issues, tips, cookieKeys:Object.keys(cookieMap)});
+    }
+
+    function safeHostname(u){
+      try{ return new URL(u).hostname; }catch(e){ return ''; }
+    }
+
+    function domainMatches(cookieMap, host){
+      // Without full attributes we can't be perfect; we do a best-effort check
+      return true;
+    }
+
+    async function onlineValidate(){
+      const backend = document.getElementById('backendUrl').value.trim();
+      if(!backend){ alert('Set Backend URL (see checker_server.js)'); return; }
+
+      const payload = collectPayload();
+      try{
+        const res = await fetch(backend,{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        const ok = !!data.ok;
+        const sum = [];
+        sum.push(`HTTP: <span class="${data.status>=200&&data.status<400?'good':'bad'}">${data.status}</span>`);
+        sum.push(`Redirects: <span class="hl">${(data.redirects||[]).length}</span>`);
+        sum.push(`Valid: <span class="${ok?'good':'bad'}">${ok?'YES':'NO'}</span>`);
+        setSummary(sum);
+        log('Online validation result:', data);
+      }catch(err){
+        setSummary([`Valid: <span class="bad">ERROR</span>`]);
+        log('Online validation failed', {error:String(err)});
+      }
+    }
+
+    function collectPayload(){
+      const url = buildTargetURL(document.getElementById('websiteUrl').value.trim());
+      const method = document.getElementById('httpMethod').value;
+      const validator = document.getElementById('validator').value.trim();
+      let headers = {};
+      try{ headers = JSON.parse(document.getElementById('customHeaders').value||'{}'); }catch(e){}
+      const cookieStr = document.getElementById('cookieStr').value.trim();
+      const cookieJson = document.getElementById('cookieJson').value.trim();
+      return { url, method, headers, validator, cookieStr, cookieJson };
+    }
+
+    // UI hooks
+    document.getElementById('btnOffline').addEventListener('click', offlineValidate);
+    document.getElementById('btnOnline').addEventListener('click', onlineValidate);
+
+    document.getElementById('btnLoadProj').addEventListener('click', async ()=>{
+      const f = document.getElementById('projFile').files[0];
+      if(!f){ alert('Choose a .proj file'); return; }
+      const text = await f.text();
+      const obj = parseProj(text);
+      const req = obj.Request||{};
+      const url = req.URL || (req.Url||''); // fallback
+      const method = req.Method || 'GET';
+      const validator = req.ResponseValidator || req.ResponseValide || '';
+      const headers = (()=>{
+        try{ return JSON.parse(req.Headers||'{}'); }catch(e){ return {}; }
+      })();
+
+      currentConfig = { projectName:(obj.Project.ProjectName||'Imported'), url, method, validator, headers, domain:(req.Domain||'') };
+      document.getElementById('websiteUrl').value = url || '';
+      document.getElementById('projectName').value = currentConfig.projectName;
+      document.getElementById('httpMethod').value = method || 'GET';
+      document.getElementById('validator').value = validator || '';
+      document.getElementById('customHeaders').value = JSON.stringify(headers,null,2);
+      setSummary([`Imported: <span class="hl">${currentConfig.projectName}</span>`]);
+      log('Loaded .proj', currentConfig);
+    });
+
+    document.getElementById('btnGenProj').addEventListener('click', ()=>{
+      const cfg = {
+        projectName: document.getElementById('projectName').value.trim()||'MyProject',
+        domain: safeHostname(document.getElementById('websiteUrl').value.trim()) || '',
+        validator: document.getElementById('validator').value.trim() || 'text:"email"',
+        url: buildTargetURL(document.getElementById('websiteUrl').value.trim()),
+        method: document.getElementById('httpMethod').value,
+        headers: (()=>{ try{return JSON.parse(document.getElementById('customHeaders').value||'{}')}catch(e){return{}} })()
+      };
+      const txt = toProj(cfg);
+      const blob = new Blob([txt],{type:'text/plain'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (cfg.projectName.replace(/[^a-z0-9-_]+/gi,'_')||'config') + '.proj';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      log('Generated .proj download', cfg);
+    });
+  </script>
+</body>
+</html>
